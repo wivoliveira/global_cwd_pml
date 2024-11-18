@@ -4,3 +4,5 @@ ARAGÃO, Luiz Eduardo OC et al. Spatial patterns and fire response of recent Ama
 
 TODO: REFERÊNCIA SBSR
 
+Para consultar o código em JavaScript (Google Earth Engine), utilizar o arquivo code_js
+
