@@ -1,0 +1,111 @@
+// Carregar as coleções de evapotranspiração e preciítação:
+
+var evap = ee.ImageCollection("CAS/IGSNRR/PML/V2_v018");
+var chirps = ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY");
+
+
+// Filtrar o Brasil pela propriedade 'ADM0_NAME' (nome do país)
+var brasil = gaul.filter(ee.Filter.eq('ADM0_NAME', 'Brazil'));
+
+
+// Definir a sequência de anos
+var anos = ee.List.sequence(2001, 2023);
+
+
+// Função que processa para um único ano
+var processarAno = function(ano) {
+  // agrupar as imagens por mês e somar para evapotranspiração
+  var evap_acum = ee.ImageCollection.fromImages(
+    ee.List.sequence(1, 12).map(function(mes) {
+      var inicio = ee.Date.fromYMD(ano, mes, 1);
+      var fim = inicio.advance(1, 'month');
+      var imagensDoMes = evap.filterDate(inicio, fim);
+      var somaMensal = imagensDoMes.mean().multiply(30);
+      return somaMensal.set('year', ano).set('month', mes).set('system:time_start', inicio.millis());
+    })
+  );
+
+// Selecionar apenas a banda de Ec
+  var evap_ec = evap_acum.select('Ec');
+
+  // Filtrar a coleção CHIRPS para o ano
+  var chirpsAno = chirps.filter(ee.Filter.calendarRange(ano, ano, 'year'));
+
+  // Somar a precipitação para obter dado mensal
+  var somarMensal = ee.ImageCollection.fromImages(
+    ee.List.sequence(1, 12).map(function(mes) {
+      var inicio = ee.Date.fromYMD(ano, mes, 1);
+      var fim = inicio.advance(1, 'month');
+      var mensal = chirpsAno.filterDate(inicio, fim)
+                            .sum()
+                            .set('year', ano)
+                            .set('month', mes)
+                            .set('system:time_start', inicio.millis());
+      return mensal;
+    })
+  );
+
+
+  // Renomear bandas de evapotranspiração
+  var renomearBanda = function(imagem) {
+    return imagem.rename(['precipitation']);
+  };
+
+  var evap_ec_renomeada = evap_ec.map(renomearBanda);
+
+
+
+  // Subtrair precipitação da evapotranspiração (CWD)
+  var wd = somarMensal.map(function(imagem1) {
+    var data = imagem1.date();
+    var imagem2 = evap_ec_renomeada.filterDate(data, data.advance(1, 'day')).first();
+    var subtracao = imagem1.subtract(imagem2);
+    return subtracao.set('system:time_start', imagem1.get('system:time_start'));
+  });
+
+  // Aplicar CWD
+  var cwd = wd.map(function(imagem) {
+    var imagemCorrigida = imagem.where(imagem.gt(0), 0);
+    return imagemCorrigida;
+  });
+
+  // Somar para obter CWD anual
+  var acwd = cwd.sum().set('year', ee.Number(ano).toUint16()).clip(brasil);
+
+  return acwd;
+};
+
+// Aplicar a função para todos os anos e criar uma coleção de imagens
+var acwdCollection = ee.ImageCollection.fromImages(anos.map(processarAno));
+print(acwdCollection)
+
+function renameBands(image) {
+  var year = image.get('year');
+  var newBandName = ee.String('mcwd_').cat(year);
+  return image.select('precipitation').rename(newBandName);
+}
+
+var renamedImages = acwdCollection.map(renameBands);
+print(renamedImages)
+
+var emptyImage = ee.Image([]);
+
+function combineBands(image, result) {
+  return ee.Image(result).addBands(image);
+}
+
+var acwdImage = ee.Image(renamedImages.iterate(combineBands, emptyImage));
+print(acwdImage);
+
+
+Map.addLayer(acwdCollection, {min: -500, max: 0, palette: ['red','yellow', 'green', 'blue']}, 'ACWD');
+
+//Opcional: exportar imagem
+
+// Export.image.toAsset({
+//   image: acwdImage,
+//   description: 'acwd_image',
+//   scale: 500,
+//   region: acwdImage.geometry(),
+//   maxPixels: 1e13
+// });
