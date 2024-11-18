@@ -6,3 +6,5 @@ TODO: REFERÊNCIA SBSR
 
 Para consultar o código em JavaScript (Google Earth Engine), utilizar o arquivo code_js
 
+Este repositório está em sua versão 1.0. Próximas atualizações contemplarão os arquivos para download direto, código em python e referência ao trabalho (atualmente submetido)
+
